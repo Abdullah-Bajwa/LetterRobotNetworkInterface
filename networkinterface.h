@@ -37,13 +37,15 @@ private:
     void transmitUdpData(const QString &data, const QHostAddress &destinationAddress, quint16 destinationPort);
     void parseUDP(const QByteArray &packet, const QHostAddress &senderAddress);
 
-public slots:
-    void startDiscoverySlot();
+private slots:
     void receiveUdpPackage();
-
     void incomingConnection();
     void onTcpDisconnected();
     void onTcpReadyRead();
+
+
+public slots:
+    void startDiscoverySlot();
     void SendTcpPacketSlot(int id, const QByteArray &packet);
 
 signals:
