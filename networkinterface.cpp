@@ -3,14 +3,14 @@
 NetworkInterface::NetworkInterface(QObject *parent) : QObject(parent)
 {
     udpSocket = new QUdpSocket(this);
-    qDebug() << udpSocket->bind(udpPort);
+    qDebug() << udpSocket->bind(udpPortServer);
     connect(udpSocket, &QUdpSocket::readyRead, this, &NetworkInterface::receiveUdpPackage);
 
     tcpServer = new QTcpServer(this);
     // Connect signals/slots for handling new connections
     connect(tcpServer, &QTcpServer::newConnection, this, &NetworkInterface::incomingConnection);
     // Start listening on a specific port
-    if (!tcpServer->listen(QHostAddress::Any, 1234)) {
+    if (!tcpServer->listen(QHostAddress::Any, tcpPort)) {
         qDebug() << "Unable to start the TCP server:" << tcpServer->errorString();
     }
 
@@ -43,21 +43,12 @@ NetworkInterface::~NetworkInterface()
 
 }
 
-void NetworkInterface::sendDataSlot(const QString &data)
-{
-    QHostAddress destinationAddress("192.168.100.255");
-    quint16 destinationPort = udpPortAlt;
-
-    transmitUdpData(data, destinationAddress, destinationPort);
-}
-
 void NetworkInterface::transmitUdpData(const QString &data, const QHostAddress &destinationAddress, quint16 destinationPort)
 {
     QByteArray message;
     QByteArray startDelimiters;
     QByteArray lengthBytes;
 
-    // Append start delimiters (§ and ¦)
     startDelimiters.append('\xEB');
     startDelimiters.append('\x90');
 
@@ -177,11 +168,11 @@ void NetworkInterface::parseUDP(const QByteArray &packet, const QHostAddress &se
                     clientsVector.append(newClient);
 
                     qDebug() << "Added new client with ID:" << clientId << "and IP:" << newClient.ipAddress;
-                    QByteArray discoveryMessage;
-                    discoveryMessage.append('\x02');
+                    QByteArray ackMessage;
+                    ackMessage.append('\x02');
                     QHostAddress destinationAddress(newClient.ipAddress);
 
-                    transmitUdpData(discoveryMessage,destinationAddress,udpPortAlt);
+                    transmitUdpData(ackMessage,destinationAddress,udpPortClient);
                 }
             } else {
                 qDebug() << "Invalid client ID:" << clientId << ". Client ID must be between 1 and 127.";
@@ -189,9 +180,6 @@ void NetworkInterface::parseUDP(const QByteArray &packet, const QHostAddress &se
         }
     }
 
-    // Continue with your existing logic or emit signals as needed
-    emit receiveDataSignal(packet);
-    // Add further parsing logic as needed
 }
 void NetworkInterface::startDiscoverySlot(){
     QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
@@ -221,12 +209,13 @@ void NetworkInterface::startDiscoverySlot(){
                         QByteArray discoveryMessage;
                         discoveryMessage.append('\x01');
                         discoveryMessage.append('\x00');
-                        transmitUdpData(discoveryMessage, destinationAddress, udpPortAlt);
+                        transmitUdpData(discoveryMessage, destinationAddress, udpPortClient);
 
 
                     }
                 }
             }
+            QMessageBox::information(nullptr, "Scan Complete", "Finished device discovery");
 
             qDebug() << "-----------------------------";
         }
@@ -252,6 +241,7 @@ void NetworkInterface::incomingConnection() {
         connect(clientSocket, &QTcpSocket::disconnected, this, &NetworkInterface::onTcpDisconnected);
 
         qDebug() << "Client connected. ID: " << it->id << ", IP: " << it->ipAddress;
+        emit deviceConnectedSignal(it->id);
     } else {
         // If the client is not found, clean up the socket
         qDebug() << "Client not recognized. Closing connection.";
@@ -280,6 +270,7 @@ void NetworkInterface::onTcpDisconnected() {
 
             // Clean up the socket
             socket->deleteLater();
+            emit deviceDisconnectedSignal(it->id);
         } else {
             // This might happen if the client was not found in the vector, handle accordingly
             qDebug() << "Warning: Client not found in the vector.";
@@ -301,12 +292,40 @@ void NetworkInterface::onTcpReadyRead() {
         if (it != clientsVector.end()) {
             // Additional data handling or processing logic can be added here
             qDebug() << "Data received from client ID " << it->id << ", IP " << socket->peerAddress().toString() << ": " << data;
+            emit receiveTcpPacketSignal(it->id, data);
         } else {
             // This might happen if the client was not found in the vector, handle accordingly
             qDebug() << "Warning: Client not found in the vector.";
         }
     }
 }
+
+void NetworkInterface::SendTcpPacketSlot(int id, const QByteArray &packet) {
+    auto it = std::find_if(clientsVector.begin(), clientsVector.end(), [id](const clientPi& client) {
+        return client.id == id;
+    });
+
+    if (it != clientsVector.end()) {
+        // Found the client with the specified id
+        clientPi& client = *it;
+
+        // Check if the client has a valid TCP socket
+        if (client.tcpSocket && client.tcpSocket->isOpen()) {
+            // Send the packet on the TCP socket
+            client.tcpSocket->write(packet);
+            client.tcpSocket->flush();
+        } else {
+            // Handle the case where the TCP socket is not valid or not open
+            qDebug() << "Error: Invalid or closed TCP socket for client with id" << id;
+            // You may want to perform additional error handling or logging here
+        }
+    } else {
+        // Handle the case where the client with the specified id is not found
+        qDebug() << "Error: Client with id" << id << "not found in clientsVector";
+        // You may want to perform additional error handling or logging here
+    }
+}
+
 
 
 

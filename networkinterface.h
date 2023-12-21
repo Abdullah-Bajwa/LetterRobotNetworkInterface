@@ -10,6 +10,7 @@
 #include <QString>
 #include <QVector>
 #include <QList>
+#include <QMessageBox>
 
 
 #include <QObject>
@@ -20,8 +21,10 @@ class NetworkInterface : public QObject
 public:
     NetworkInterface(QObject *parent = nullptr);
     ~NetworkInterface();
-    const int udpPort = 5453;
-    const int udpPortAlt = 5454;
+
+private:
+    const int udpPortServer = 5454;
+    const int udpPortClient = 5454;
     const int tcpPort = 5464;
     struct clientPi {
         int id = 0;
@@ -30,25 +33,23 @@ public:
     };
     QVector<clientPi> clientsVector;
     QUdpSocket *udpSocket;
+    QTcpServer* tcpServer;
+    void transmitUdpData(const QString &data, const QHostAddress &destinationAddress, quint16 destinationPort);
     void parseUDP(const QByteArray &packet, const QHostAddress &senderAddress);
 
-    QTcpServer* tcpServer;
-    QTcpSocket* tcpSocket;
-
 public slots:
-    void sendDataSlot(const QString &data);
-    void transmitUdpData(const QString &data, const QHostAddress &destinationAddress, quint16 destinationPort);
-    void receiveUdpPackage();
     void startDiscoverySlot();
+    void receiveUdpPackage();
 
     void incomingConnection();
     void onTcpDisconnected();
     void onTcpReadyRead();
+    void SendTcpPacketSlot(int id, const QByteArray &packet);
 
 signals:
-    void receiveDataSignal(const QByteArray &data);
-    void networkDiscoveryCompleteSignal();
-
+    void receiveTcpPacketSignal(int id,const QByteArray &data);
+    void deviceConnectedSignal(int id);
+    void deviceDisconnectedSignal(int id);
 
 };
 
