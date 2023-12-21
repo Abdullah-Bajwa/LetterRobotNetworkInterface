@@ -15,6 +15,7 @@ class MainWindow : public QMainWindow
 
 signals:
     void sendDataSignal(const QString &data);
+    void startDiscoverySignal();
 
 public:
     MainWindow(QWidget *parent = nullptr);
@@ -22,8 +23,12 @@ public:
 
 private slots:
     void on_sendButton_clicked();
+    void on_discoveryButton_clicked();
+
+    void on_devicesButton_clicked();
+
 public slots:
-    void receiveDataSlot(QByteArray &data);
+    void receiveDataSlot(const QByteArray &data);
 
 private:
     Ui::MainWindow *ui;
