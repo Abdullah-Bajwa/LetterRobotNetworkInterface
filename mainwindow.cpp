@@ -6,7 +6,7 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
 {
     networkInterfaceObj = new NetworkInterface(this);
-    connect(this, MainWindow::sendDataSignal, networkInterfaceObj, NetworkInterface::sendDataSlot);
+    connect(this, &MainWindow::sendDataSignal, networkInterfaceObj, &NetworkInterface::sendDataSlot);
     connect(networkInterfaceObj, &NetworkInterface::receiveDataSignal, this, &MainWindow::receiveDataSlot);
     connect(this, &MainWindow::startDiscoverySignal, networkInterfaceObj, &NetworkInterface::startDiscoverySlot);
     ui->setupUi(this);

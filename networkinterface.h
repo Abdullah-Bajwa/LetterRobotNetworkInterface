@@ -19,6 +19,7 @@ class NetworkInterface : public QObject
     Q_OBJECT
 public:
     NetworkInterface(QObject *parent = nullptr);
+    ~NetworkInterface();
     const int udpPort = 5453;
     const int udpPortAlt = 5454;
     const int tcpPort = 5464;
@@ -28,23 +29,26 @@ public:
         QTcpSocket* tcpSocket = nullptr;
     };
     QVector<clientPi> clientsVector;
-
     QUdpSocket *udpSocket;
     void parseUDP(const QByteArray &packet, const QHostAddress &senderAddress);
 
-signals:
-    void receiveDataSignal(const QByteArray &data);
-    void networkDiscoveryCompleteSignal();
+    QTcpServer* tcpServer;
+    QTcpSocket* tcpSocket;
 
 public slots:
     void sendDataSlot(const QString &data);
     void transmitUdpData(const QString &data, const QHostAddress &destinationAddress, quint16 destinationPort);
     void receiveUdpPackage();
     void startDiscoverySlot();
-    void onDisconnected();
-    void onReadyRead();
-protected:
-    void incomingConnection(qintptr socketDescriptor) override;
+
+    void incomingConnection();
+    void onTcpDisconnected();
+    void onTcpReadyRead();
+
+signals:
+    void receiveDataSignal(const QByteArray &data);
+    void networkDiscoveryCompleteSignal();
+
 
 };
 

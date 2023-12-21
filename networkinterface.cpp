@@ -3,11 +3,43 @@
 NetworkInterface::NetworkInterface(QObject *parent) : QObject(parent)
 {
     udpSocket = new QUdpSocket(this);
-
     qDebug() << udpSocket->bind(udpPort);
-
     connect(udpSocket, &QUdpSocket::readyRead, this, &NetworkInterface::receiveUdpPackage);
 
+    tcpServer = new QTcpServer(this);
+    // Connect signals/slots for handling new connections
+    connect(tcpServer, &QTcpServer::newConnection, this, &NetworkInterface::incomingConnection);
+    // Start listening on a specific port
+    if (!tcpServer->listen(QHostAddress::Any, 1234)) {
+        qDebug() << "Unable to start the TCP server:" << tcpServer->errorString();
+    }
+
+
+}
+NetworkInterface::~NetworkInterface()
+{
+    qDebug() << "closing network interface";
+    // Cleanup or resource release code goes here
+
+    // Close and delete the UDP socket
+    if (udpSocket) {
+        udpSocket->close();
+        delete udpSocket;
+        udpSocket = nullptr;
+    }
+
+    for (const clientPi& client : clientsVector) {
+        if (client.tcpSocket && client.tcpSocket->isOpen()) {
+            client.tcpSocket->close();
+            client.tcpSocket->deleteLater();
+        }
+    }
+
+
+    if (tcpServer && tcpServer->isListening()) {
+        tcpServer->close();
+        tcpServer->deleteLater();
+    }
 
 }
 
@@ -145,6 +177,11 @@ void NetworkInterface::parseUDP(const QByteArray &packet, const QHostAddress &se
                     clientsVector.append(newClient);
 
                     qDebug() << "Added new client with ID:" << clientId << "and IP:" << newClient.ipAddress;
+                    QByteArray discoveryMessage;
+                    discoveryMessage.append('\x02');
+                    QHostAddress destinationAddress(newClient.ipAddress);
+
+                    transmitUdpData(discoveryMessage,destinationAddress,udpPortAlt);
                 }
             } else {
                 qDebug() << "Invalid client ID:" << clientId << ". Client ID must be between 1 and 127.";
@@ -200,42 +237,30 @@ void NetworkInterface::startDiscoverySlot(){
 
 
 /*******************TCP SETUP*****************************************/
-void NetworkInterface::incomingConnection(qintptr socketDescriptor) {
+void NetworkInterface::incomingConnection() {
     // Create a new QTcpSocket for the incoming connection
-    QTcpSocket* clientSocket = new QTcpSocket(this);
+    QTcpSocket* clientSocket = tcpServer->nextPendingConnection();
+    QString clientIpAddress = clientSocket->peerAddress().toString();  // Assuming ipAddress is stored as QString
+    auto it = std::find_if(clientsVector.begin(), clientsVector.end(), [clientIpAddress](const clientPi& client) {
+        return client.ipAddress == clientIpAddress;
+    });
+    if (it != clientsVector.end()) {
+        it->tcpSocket = clientSocket;
 
-    // Set the socket descriptor
-    if (clientSocket->setSocketDescriptor(socketDescriptor)) {
-        // Find the appropriate struct in the vector based on the client's IPv6 address
-        QString clientIpAddress = clientSocket->peerAddress().toString();  // Assuming ipAddress is stored as QString
+        // Do additional setup or handle the connection as needed
+        connect(clientSocket, &QTcpSocket::readyRead, this, &NetworkInterface::onTcpReadyRead);
+        connect(clientSocket, &QTcpSocket::disconnected, this, &NetworkInterface::onTcpDisconnected);
 
-        // Find the client in the vector based on the IPv6 address
-        auto it = std::find_if(clientsVector.begin(), clientsVector.end(), [clientIpAddress](const clientPi& client) {
-            return client.ipAddress == clientIpAddress;
-        });
-
-        // If the client is found, assign the socket
-        if (it != clientsVector.end()) {
-            it->tcpSocket = clientSocket;
-
-            // Do additional setup or handle the connection as needed
-            connect(clientSocket, &QTcpSocket::readyRead, this, &NetworkInterface::onReadyRead);
-            connect(clientSocket, &QTcpSocket::disconnected, this, &NetworkInterface::onDisconnected);
-
-            qDebug() << "Client connected. ID: " << it->id << ", IP: " << it->ipAddress;
-        } else {
-            // If the client is not found, clean up the socket
-            qDebug() << "Client not recognized. Closing connection.";
-            clientSocket->disconnectFromHost();
-            clientSocket->deleteLater();
-        }
+        qDebug() << "Client connected. ID: " << it->id << ", IP: " << it->ipAddress;
     } else {
-        // Handle the error
-        qDebug() << "Error setting socket descriptor: " << clientSocket->errorString();
+        // If the client is not found, clean up the socket
+        qDebug() << "Client not recognized. Closing connection.";
+        clientSocket->disconnectFromHost();
         clientSocket->deleteLater();
     }
+
 }
-void NetworkInterface::onDisconnected() {
+void NetworkInterface::onTcpDisconnected() {
     // Handle disconnection and clean up resources
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (socket) {
@@ -261,7 +286,7 @@ void NetworkInterface::onDisconnected() {
         }
     }
 }
-void NetworkInterface::onReadyRead() {
+void NetworkInterface::onTcpReadyRead() {
     // Handle data received from the sockets
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (socket) {
@@ -275,7 +300,6 @@ void NetworkInterface::onReadyRead() {
         // If the client is found, handle the received data
         if (it != clientsVector.end()) {
             // Additional data handling or processing logic can be added here
-
             qDebug() << "Data received from client ID " << it->id << ", IP " << socket->peerAddress().toString() << ": " << data;
         } else {
             // This might happen if the client was not found in the vector, handle accordingly
